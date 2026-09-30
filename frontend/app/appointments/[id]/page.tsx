@@ -6,6 +6,7 @@ import AppShell from '../../AppShell';
 import {
   api, fmt, getSession, PET_LABEL, ROLE_LABEL, STATUS_LABEL, statusTag, yuan,
 } from '../../lib';
+import { StoragePanel } from './StoragePanel';
 
 function useDetail(id: number) {
   const [d, setD] = useState<any>(null);
@@ -235,20 +236,11 @@ export default function DetailPage({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          {/* 柜位 */}
+          {/* 柜位：首次入柜 */}
           <div className="panel">
             <h2>骨灰寄存柜位</h2>
             {d.locker ? (
-              <>
-                <dl className="kv">
-                  <dt>柜位</dt><dd>{d.locker.code}（{d.locker.tier === 'premium' ? '尊享柜' : '标准柜'}）<LockerTag s={d.locker.status} /></dd>
-                  <dt>入存时间</dt><dd>{fmt(d.locker.occupied_since)}</dd>
-                  <dt>到期时间</dt><dd>{fmt(d.locker.expire_at)}（年费 {yuan(d.locker.annual_fee)}）</dd>
-                </dl>
-                {canCs && ['occupied', 'expiring', 'expired'].includes(d.locker.status) && (
-                  <button className="small" onClick={() => act(() => api('POST', `/api/lockers/${d.locker.id}/renew`, { months: 12 }), '已续费 12 个月')}>续费 12 个月</button>
-                )}
-              </>
+              <p className="muted">柜位续费、到期处置、授权与联系记录请见下方「骨灰寄存续费与处置」面板。</p>
             ) : (
               <>
                 <p className="muted">尚未入柜寄存</p>
@@ -268,6 +260,9 @@ export default function DetailPage({ params }: { params: { id: string } }) {
               </>
             )}
           </div>
+
+          {/* 寄存续费、授权、到期处置 */}
+          <StoragePanel a={a} role={role} act={act} reload={load} />
 
           {/* 相册 */}
           <AlbumPanel a={a} d={d} role={role} act={act} />
@@ -310,6 +305,12 @@ function PendingConfirm({ c, id, isOwner, canCs, onDone }: any) {
     try { await api('POST', `/api/appointments/${id}/confirmations/${c.id}/respond`, { approve }); onDone(); }
     catch (e: any) { setErr(e.message); setBusy(false); }
   }
+  async function respondLongterm(approve: boolean) {
+    setBusy(true); setErr('');
+    try { await api('POST', `/api/storage/longterm/${c.id}/confirm`,
+      { approve, note: approve ? '家属确认转长期方案' : '家属暂不接受' }); onDone(); }
+    catch (e: any) { setErr(e.message); setBusy(false); }
+  }
   async function approveReschedule(approve: boolean) {
     setBusy(true); setErr('');
     try {
@@ -318,12 +319,13 @@ function PendingConfirm({ c, id, isOwner, canCs, onDone }: any) {
       onDone();
     } catch (e: any) { setErr(e.message); setBusy(false); }
   }
-  const subjectMap: any = { plan: '服务方案', fee_change: '费用变更', ceremony_time: '仪式时间改期', video_witness: '视频见证' };
+  const subjectMap: any = { plan: '服务方案', fee_change: '费用变更', ceremony_time: '仪式时间改期', video_witness: '视频见证', longterm_move: '转长期寄存方案' };
   const isReschedule = c.subject === 'ceremony_time';
+  const isLongterm = c.subject === 'longterm_move';
   return (
     <div style={{ borderBottom: '1px dashed var(--line)', paddingBottom: 10, marginBottom: 10 }}>
       <span className="tag warn">{subjectMap[c.subject] || c.subject} · 待处理</span>
-      <p style={{ margin: '6px 0' }}>{String(c.content).replace(/\[(FEE|TIME)\].*?\[\/\1\]/g, '')}</p>
+      <p style={{ margin: '6px 0' }}>{String(c.content).replace(/\[(FEE|TIME|LT)\].*?\[\/(FEE|TIME|LT)\]/g, '')}</p>
       {err && <div className="error">{err}</div>}
       {isReschedule ? (
         canCs ? (
@@ -332,6 +334,13 @@ function PendingConfirm({ c, id, isOwner, canCs, onDone }: any) {
             <button className="small danger" disabled={busy} onClick={() => approveReschedule(false)}>驳回</button>
           </div>
         ) : <p className="muted">已提交，等待客服协调告别室与礼仪师档期</p>
+      ) : isLongterm ? (
+        isOwner ? (
+          <div className="pill-actions">
+            <button className="small ok" disabled={busy} onClick={() => respondLongterm(true)}>确认转长期并预占柜位</button>
+            <button className="small danger" disabled={busy} onClick={() => respondLongterm(false)}>暂不接受</button>
+          </div>
+        ) : <p className="muted">等待家属确认长期柜位与迁移时间</p>
       ) : isOwner ? (
         <div className="pill-actions">
           <button className="small ok" disabled={busy} onClick={() => respond(true)}>同意确认</button>

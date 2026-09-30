@@ -1,0 +1,49 @@
+services:
+  db:
+    image: mariadb:10.11
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    environment:
+      MARIADB_DATABASE: pet_aftercare
+      MARIADB_USER: petapp
+      MARIADB_PASSWORD: petapp123
+      MARIADB_ROOT_PASSWORD: root123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: petapp
+      DB_PASS: petapp123
+      DB_NAME: pet_aftercare
+      PORT: 4000
+      # 置 1 可在每次启动时重置演示数据（默认仅空库自动种子）
+      SEED_RESET: "0"
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # 浏览器访问后端的地址；远程部署改为宿主机 IP/域名
+        NEXT_PUBLIC_API: http://127.0.0.1:4000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  mariadb_data:

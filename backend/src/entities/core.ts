@@ -15,6 +15,8 @@ export class Store {
 export type UserRole =
   | 'owner'           // 宠物主人
   | 'customer_service'// 客服
+  | 'cs_supervisor'   // 客服主管（处置下一步审批）
+  | 'storage_manager' // 寄存主管（授权与证据复核）
   | 'driver'          // 接送员
   | 'ceremonialist'   // 礼仪师
   | 'cremator'        // 火化师

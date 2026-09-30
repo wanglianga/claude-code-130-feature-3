@@ -223,7 +223,144 @@ async function main() {
   await login('owner1');
   const final: any = await api('GET', `/api/appointments/${id}`, {});
   log(`\n布丁单最终状态：${final.appointment.status}，时间线 ${final.timeline.length} 个可追溯节点，待回访 ${final.followups.filter((f:any)=>f.status==='scheduled').length} 项`);
-  log('演示完成 ✅');
+
+  // ============================================================
+  // 21. 寄存处置场景 A：团团（2 号店，逾期 40 天，种子案件多轮联系中）
+  //     第 3 轮联系无回应 → 柜位受保护 → 客服主管审批 → 寄存主管复核生成指令
+  //     → 执行前家属恢复联系 → 撤回指令、恢复账单与柜位 → 家属完成续费
+  // ============================================================
+  log('\n========== 寄存处置场景 A：逾期多轮联系 → 双审批 → 执行前撤回 → 续费 ==========');
+  await login('cs2');
+  const store2Appts: any[] = await api('GET', '/api/appointments?status=completed', {});
+  const tuan = store2Appts.find((x: any) => x.pet_name === '团团');
+  if (!tuan) throw new Error('种子数据缺少「团团」，请先 npm run seed');
+  const sd1: any = await api('GET', `/api/storage/appointments/${tuan.id}/detail`, {});
+  const dc = sd1.open_case;
+  log(`处置案件 ${dc.code}：已联系 ${dc.attempts.length}/${dc.rounds_required} 轮，柜位 ${sd1.locker.code} 状态 ${sd1.locker.status}`);
+
+  // 第 3 轮：书面信函仍无回应，留存挂号信底单
+  const esc: any = await api('POST', `/api/storage/cases/${dc.id}/contact`, {
+    channel: 'letter', result: 'no_answer',
+    note: '逾期第 40 天寄发挂号处置告知函，回执显示家属未取件',
+    evidence_urls: ['https://example.com/contact/round3-registered-letter.jpg'],
+  }, '第三轮联系');
+  if (!esc.escalated) throw new Error('三轮无回应后应升级为受保护待处置');
+  const prot: any = await api('GET', `/api/storage/cases/${dc.id}`, {});
+  log(`三轮联系无回应 → 柜位 ${prot.locker.code} 状态「${prot.locker.status}」，案件待客服主管审批`);
+  if (prot.locker.status !== 'protected') throw new Error('柜位应进入 protected 受保护状态');
+
+  // 客服主管审批
+  await login('cssup2');
+  await api('POST', `/api/storage/cases/${dc.id}/supervisor-approve`,
+    { approve: true, note: '联系程序合规，同意进入处置评估' }, '客服主管审批');
+
+  // 寄存主管复核：选择「迁移」却未指定目标柜位 → 拦截且不推进状态
+  await login('store2');
+  try {
+    await api('POST', `/api/storage/cases/${dc.id}/storage-review`,
+      { approve: true, action: 'migrate', note: '尝试迁移但不指定目标柜位（应被拦截）' });
+    throw new Error('迁移未指定目标柜位时应被拦截');
+  } catch (e: any) {
+    log(`合规拦截：${e.message}`);
+  }
+  // 证据齐全（三轮均有证明材料），生成「继续保管 12 个月」指令
+  const order: any = await api('POST', `/api/storage/cases/${dc.id}/storage-review`, {
+    approve: true, action: 'continue_storage', period_months: 12,
+    planned_at: new Date(Date.now() + 2 * 86400000).toISOString(),
+    note: '三轮联系证据完整（通话记录/短信退信/挂号回执），指令继续保管 12 个月',
+  }, '寄存主管复核并生成指令');
+  log(`处置指令 ${order.order_no}：${order.action}，原柜位 ${order.from_locker_code} 永久保留，待执行`);
+
+  // 执行前家属恢复联系 → 撤回（owner 本人可撤回）
+  await login('owner2');
+  await api('POST', `/api/storage/cases/${dc.id}/withdraw`,
+    { note: '家属看到挂号函后主动来电，希望续费继续寄存' }, '执行前撤回');
+  const after: any = await api('GET', `/api/storage/cases/${dc.id}`, {});
+  log(`撤回后：案件 ${after.case.status}，指令 ${after.orders[0].status}，柜位恢复为「${after.locker.status}」`);
+  if (after.orders[0].status !== 'withdrawn') throw new Error('指令应已撤回');
+  if (after.locker.status !== 'expired') throw new Error('原柜位应恢复为 expired（到期占用）状态');
+
+  // 家属完成续费（新续费流程：三项校验）
+  const rc: any = await api('POST', `/api/storage/appointments/${tuan.id}/renew-check`, { months: 12 });
+  log(`续费校验：可续用=${rc.renewable}，年费变更=${rc.price_changed}，未结余额=${rc.outstanding_balance}，放行=${rc.can_renew}`);
+  await api('POST', `/api/storage/appointments/${tuan.id}/renew`,
+    { months: 12, acknowledge_price_change: true }, '家属续费 12 个月');
+  const renewed: any = await api('GET', `/api/storage/cases/${dc.id}`, {});
+  log(`续费完成：柜位 ${renewed.locker.code} 状态「${renewed.locker.status}」，新到期 ${new Date(renewed.locker.expire_at).toLocaleDateString('zh-CN')}`);
+
+  // ============================================================
+  // 22. 寄存处置场景 B：念念（1 号店，15 天后到期，偏好「转长期」，年费 600→680）
+  //     续费价格变更校验 → 转长期比较柜位 → 家属确认 → 占用柜位拦截验证
+  //     → 迁移执行留痕 → 家属后续回访
+  // ============================================================
+  log('\n========== 寄存处置场景 B：年费变更提示 + 转长期寄存迁移 ==========');
+  await login('owner1');
+  const myAppts: any[] = await api('GET', '/api/appointments?status=completed', {});
+  const nian = myAppts.find((x: any) => x.pet_name === '念念');
+  if (!nian) throw new Error('种子数据缺少「念念」，请先 npm run seed');
+
+  // 续费三项校验：年费已由 600 上调至 680，未确认知晓时拦截
+  const rc2: any = await api('POST', `/api/storage/appointments/${nian.id}/renew-check`, { months: 12 });
+  log(`续费校验：${rc2.price_note}；本期续费 ${rc2.renewal_fee} 元；未结 ${rc2.outstanding_balance} 元；放行=${rc2.can_renew}`);
+  if (!rc2.price_changed) throw new Error('应检测出年费价格变更 600→680');
+  await login('owner1');
+  try {
+    await api('POST', `/api/storage/appointments/${nian.id}/renew`, { months: 12 });
+    throw new Error('未确认年费变更时续费应被拦截');
+  } catch (e: any) {
+    log(`合规拦截：${e.message}`);
+  }
+
+  // 客服按偏好转长期：比较可用柜位与迁移时间
+  await login('cs1');
+  await api('POST', '/api/storage/scan', {});  // 按偏好发送提醒（已存在则不重复）
+  const cand: any = await api('GET', `/api/storage/appointments/${nian.id}/longterm-candidates`, {});
+  const target = cand.candidates.find((c: any) => c.code === 'A-01-01');
+  log(`柜位比较：原柜位 ${cand.current.code}（${cand.current.annual_fee}/年）→ 候选长期柜位 ${target.code}，10 年九折价 ${target.longterm_120m_fee} 元`);
+  const moveAt = new Date(Date.now() + 5 * 86400000).toISOString();
+  const proposal: any = await api('POST', `/api/storage/appointments/${nian.id}/longterm-propose`, {
+    target_locker_id: target.id, planned_move_at: moveAt, note: '家属周末方便到场，安排礼仪师陪同迁移',
+  }, '客服提出转长期方案');
+
+  // 家属确认 → 预占目标柜位
+  await login('owner1');
+  await api('POST', `/api/storage/longterm/${proposal.id}/confirm`,
+    { approve: true, note: '同意迁移至 A-01-01，周六下午到场' }, '家属确认转长期');
+  const nc: any = await api('GET', `/api/storage/appointments/${nian.id}/detail`, {});
+  const migCase = nc.open_case;
+  const migOrder = migCase.orders[0];
+  log(`迁移指令 ${migOrder.order_no} 已生成，目标柜位预占状态 reserved`);
+
+  // 占用拦截：另一单不得再承诺/迁入 A-01-01
+  await login('cs1');
+  try {
+    await api('POST', `/api/storage/appointments/${nian.id}/longterm-propose`, {
+      target_locker_id: target.id, planned_move_at: moveAt,
+    });
+    throw new Error('已预占柜位应被拦截');
+  } catch (e: any) {
+    log(`合规拦截：${e.message}`);
+  }
+
+  // 执行迁移：记录原柜位、交接人员、时间与证明
+  await api('POST', `/api/storage/orders/${migOrder.id}/execute`, {
+    handover_by: '礼仪师-安然、寄存主管-许伯安（双方签字）',
+    note: '原柜位骨灰盒核验封签完好，迁入 A-01-01 长期柜位',
+    evidence_urls: ['https://example.com/move/handover-01.jpg', 'https://example.com/move/sign-sheet.jpg'],
+  }, '执行迁移');
+  await api('POST', `/api/storage/orders/${migOrder.id}/followup`, {
+    result: '迁移后第 3 日电话回访，家属确认安放位置满意，情绪平稳，已告知新到期日',
+  }, '登记家属回访');
+  const nd: any = await api('GET', `/api/storage/appointments/${nian.id}/detail`, {});
+  log(`迁移完成：原柜位 A-02-01 已释放，新柜位 A-01-01 状态「${nd.locker.status}」，到期 ${new Date(nd.locker.expire_at).toLocaleDateString('zh-CN')}`);
+  // 案件已执行，open_case 关闭，改查案件详情核对执行留痕与回访
+  const cd: any = await api('GET', `/api/storage/cases/${migCase.id}`, {});
+  const doneOrder = cd.orders[0];
+  log(`处置指令留痕：状态=${doneOrder.status}；原柜位=${doneOrder.from_locker_code}；交接人=${doneOrder.handover_by}`);
+  log(`执行时间=${new Date(doneOrder.executed_at).toLocaleString('zh-CN')}；家属回访结果已记录=${!!doneOrder.follow_up_result}`);
+  if (doneOrder.status !== 'executed' || !doneOrder.follow_up_at) throw new Error('迁移处置未完整留痕');
+
+  log('\n演示完成 ✅（含寄存到期续费三项校验、授权与联系留痕、受保护双审批、迁移/撤回/回访全流程）');
 }
 
 main().catch(e => { console.error('\n❌ 演示失败:', e.message); process.exit(1); });

@@ -7,7 +7,10 @@ import { api, setSession } from '../lib';
 
 const DEMO = [
   ['owner1', '宠物主人 · 王女士'],
+  ['owner2', '宠物主人 · 李先生'],
   ['cs1', '客服 · 周敏（星河路店）'],
+  ['cssup1', '客服主管 · 孟晴'],
+  ['store1', '寄存主管 · 许伯安'],
   ['driver1', '接送员 · 老赵'],
   ['rite1', '礼仪师 · 安然'],
   ['fire1', '火化师 · 郑师傅'],

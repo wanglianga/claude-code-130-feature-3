@@ -366,6 +366,9 @@ export class WorkflowService {
     if (c.subject === 'ceremony_time') {
       throw new BadRequestException('改期申请须由客服审批排期，请等待客服处理');
     }
+    if (c.subject === 'longterm_move') {
+      throw new BadRequestException('转长期方案须走专用确认（复核柜位占用、立案与预占），请在寄存处置入口确认');
+    }
     await this.confirms.update(cid, {
       status: dto.approve ? 'confirmed' : 'rejected',
       confirmed_at: new Date(), reply_note: dto.note || null,
@@ -627,6 +630,20 @@ export class WorkflowService {
     const locker = await this.lockers.findOne({ where: { id: lockerId } });
     if (!locker) throw new NotFoundException('柜位不存在');
     if (!locker.appointment_id) throw new BadRequestException('柜位当前未占用');
+    // 受保护/预占柜位不可在此直接续费，须走处置撤回或新续费校验流程
+    if (locker.status === 'protected') {
+      throw new BadRequestException('柜位已受保护待处置，需先在处置案件中撤回或恢复联系后续费');
+    }
+    if (locker.status === 'reserved') throw new BadRequestException('柜位已被迁移指令预占');
+    const activeOrder = await this.ds.query(
+      'SELECT id FROM disposition_orders WHERE appointment_id = ? AND status = ? LIMIT 1',
+      [locker.appointment_id, 'pending']);
+    if (activeOrder.length) throw new BadRequestException('存在未完成处置指令，请先撤回后续费');
+    // 未结费用校验（年费可续用/价格变更的完整校验见 /api/storage/appointments/:id/renew-check）
+    const fees = await this.fees.find({ where: { appointment_id: locker.appointment_id } });
+    if (fees.some(f => f.confirm_status === 'pending')) {
+      throw new BadRequestException('存在家属未确认的费用变更，需先处理再续费');
+    }
     const base = locker.expire_at && +locker.expire_at > Date.now() ? locker.expire_at : new Date();
     const newExpire = new Date(+base + dto.months * 30 * 86400000);
     const fee = Math.round((Number(locker.annual_fee) / 12) * dto.months * 100) / 100;
@@ -635,7 +652,7 @@ export class WorkflowService {
       await tx.getRepository(FeeItem).insert(tx.getRepository(FeeItem).create({
         appointment_id: locker.appointment_id, kind: 'storage', title: `柜位 ${locker.code} 续存 ${dto.months} 个月`,
         amount: String(fee), reason: '寄存续费', operator_id: user.sub,
-        entry_type: 'change', confirm_status: 'confirmed',
+        entry_type: 'change', confirm_status: 'confirmed', period_months: dto.months,
       }));
       await tx.getRepository(TimelineEvent).insert(tx.getRepository(TimelineEvent).create({
         appointment_id: locker.appointment_id, node_key: 'storage_renewed', flag: 'resolved',
@@ -645,7 +662,8 @@ export class WorkflowService {
       // 续费后关闭该单待办的到期提醒回访
       await tx.getRepository(Followup).update(
         { appointment_id: locker.appointment_id, status: 'scheduled' as any,
-          trigger: In(['locker_expiring', 'locker_expired']) },
+          trigger: In(['locker_expiring', 'locker_expired', 'locker_renew_reminder',
+            'locker_retrieve_reminder', 'locker_longterm_reminder']) },
         { status: 'skipped' });
     });
     return this.lockers.findOne({ where: { id: lockerId } });
@@ -837,9 +855,11 @@ export class WorkflowService {
         }
       }
     }
-    const [stores, expiringLockers, failedMementos, pendingFees] = await Promise.all([
+    const [stores, expiringLockers, protectedLockers, reservedLockers, failedMementos, pendingFees] = await Promise.all([
       this.stores.find(),
       this.lockers.count({ where: { status: In(['expiring', 'expired']) } }),
+      this.lockers.count({ where: { status: 'protected' } }),
+      this.lockers.count({ where: { status: 'reserved' } }),
       this.mementos.count({ where: { status: In(['failed', 'remake']) } }),
       this.fees.count({ where: { entry_type: 'change', confirm_status: 'pending' } }),
     ]);
@@ -847,7 +867,9 @@ export class WorkflowService {
       total: appts.length, status_count: statusCount,
       open_exceptions: exceptions, payable_total: payable, paid_total: paid,
       breached_promises: breached.slice(0, 50),
-      expiring_lockers: expiringLockers, failed_mementos: failedMementos, pending_fees: pendingFees,
+      expiring_lockers: expiringLockers, protected_lockers: protectedLockers,
+      reserved_lockers: reservedLockers,
+      failed_mementos: failedMementos, pending_fees: pendingFees,
       stores,
     };
   }

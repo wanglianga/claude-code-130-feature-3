@@ -20,6 +20,8 @@ export class FeeItem {
   @Column({ type: 'varchar', length: 10, default: 'base' }) entry_type: 'base' | 'change';
   @Column({ type: 'varchar', length: 12, default: 'pending' })
   confirm_status: 'pending' | 'confirmed' | 'rejected';
+  /** 寄存类费用的周期月数（用于年费价格变化比对），其余费用为空 */
+  @Column({ type: 'int', nullable: true }) period_months: number;
   @CreateDateColumn() created_at: Date;
 }
 

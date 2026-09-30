@@ -19,6 +19,8 @@ export default function OverviewPage() {
         <div className="stat"><div className="n">¥{Number(d.payable_total).toFixed(0)}</div><div className="l">应收总额</div></div>
         <div className="stat"><div className="n" style={{ color: 'var(--ok)' }}>¥{Number(d.paid_total).toFixed(0)}</div><div className="l">已收净额（扣退款）</div></div>
         <div className="stat"><div className="n" style={{ color: d.expiring_lockers ? 'var(--warn)' : undefined }}>{d.expiring_lockers}</div><div className="l">柜位临期/过期</div></div>
+        <div className="stat"><div className="n" style={{ color: d.protected_lockers ? 'var(--bad)' : 'var(--ok)' }}>{d.protected_lockers || 0}</div><div className="l">受保护待处置柜位</div></div>
+        <div className="stat"><div className="n" style={{ color: d.reserved_lockers ? 'var(--warn)' : undefined }}>{d.reserved_lockers || 0}</div><div className="l">迁移预占柜位</div></div>
         <div className="stat"><div className="n" style={{ color: d.failed_mementos ? 'var(--bad)' : undefined }}>{d.failed_mementos}</div><div className="l">纪念品失败/重做中</div></div>
         <div className="stat"><div className="n" style={{ color: d.pending_fees ? 'var(--warn)' : undefined }}>{d.pending_fees}</div><div className="l">待家属确认费用变更</div></div>
         <div className="stat"><div className="n" style={{ color: d.breached_promises.length ? 'var(--bad)' : undefined }}>{d.breached_promises.length}</div><div className="l">承诺时间疑似超期</div></div>

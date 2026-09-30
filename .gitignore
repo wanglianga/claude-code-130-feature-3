@@ -2,12 +2,9 @@ node_modules/
 .next/
 dist/
 .npm-cache/
-.local/mariadb/
-.local/mariadb-*/
-.local/mysqldata/
-.local/*.log
-.local/mysql.sock
-.local/mysqld.pid
+# .local 仅交付免安装 MariaDB 控制脚本，其余（下载包/数据/运行时）全部忽略
+.local/*
+!.local/mysqlctl.sh
 *.tsbuildinfo
 # Generated/runtime files excluded from GSB delivery
 **/node_modules/

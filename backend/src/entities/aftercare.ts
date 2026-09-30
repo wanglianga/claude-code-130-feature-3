@@ -48,13 +48,17 @@ export class Locker {
   @Column() store_id: number;
   @Column({ length: 20 }) code: string;           // 如 A-01-03
   @Column({ length: 20, default: 'standard' }) tier: 'standard' | 'premium';
-  /** free 空闲 / occupied 占用中 / expiring 即将到期（30天内）/ expired 已到期 */
+  /** free 空闲 / occupied 占用中 / expiring 即将到期（30天内）/ expired 已到期 /
+   *  protected 受保护待处置（逾期多轮联系无回应，禁止释放与再分配）/
+   *  reserved 已被处置迁移指令预占（不可再承诺给他人）*/
   @Column({ length: 12, default: 'free' })
-  status: 'free' | 'occupied' | 'expiring' | 'expired';
+  status: 'free' | 'occupied' | 'expiring' | 'expired' | 'protected' | 'reserved';
   @Column({ nullable: true }) appointment_id: number;
   @Column({ type: 'datetime', nullable: true }) occupied_since: Date;
   @Column({ type: 'datetime', nullable: true }) expire_at: Date;   // 年费到期
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 600 }) annual_fee: string;
+  /** 被哪条处置迁移指令预占（reserved 状态时），防止柜位被重复承诺/分配 */
+  @Column({ nullable: true }) reserved_for_order_id: number;
 }
 
 /** 情感回访记录（含情绪安抚）—— 回访节奏由柜位/纪念品状态驱动 */
@@ -68,8 +72,10 @@ export class Followup {
   /** scheduled 待回访 / done 已完成 / skipped 跳过 */
   @Column({ length: 12, default: 'scheduled' }) status: 'scheduled' | 'done' | 'skipped';
   /** routine 常规 / memento_failed 纪念品失败关怀 / locker_expiring 柜位到期提醒 /
-   *  locker_expired 到期未续费 / post_service 服务后情绪安抚 */
-  @Column({ length: 20 }) trigger: string;
+   *  locker_expired 到期未续费 / post_service 服务后情绪安抚 /
+   *  locker_renew_reminder 续费提醒 / locker_retrieve_reminder 取回提醒 /
+   *  locker_longterm_reminder 转长期提醒 / disposition_followup 处置后家属回访 */
+  @Column({ length: 30 }) trigger: string;
   @Column({ type: 'text', nullable: true }) emotion_note: string; // 家属情绪记录
   @Column({ type: 'text', nullable: true }) content: string;
   @Column({ nullable: true }) cs_id: number;

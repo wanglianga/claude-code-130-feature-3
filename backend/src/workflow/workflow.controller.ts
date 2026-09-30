@@ -22,13 +22,13 @@ export class WorkflowController {
   hospitals(@Query('store_id') sid: string) { return this.wf.listHospitals(sid ? Number(sid) : undefined); }
 
   @Get('staff')
-  @Roles('customer_service', 'manager')
+  @Roles('customer_service', 'cs_supervisor', 'storage_manager', 'manager')
   staff(@Query('role') role: string, @Query('store_id') sid: string) {
     return this.wf.listStaff(role, sid ? Number(sid) : undefined);
   }
 
   @Get('resources')
-  @Roles('customer_service', 'manager')
+  @Roles('customer_service', 'cs_supervisor', 'storage_manager', 'manager')
   resources(@Query('store_id') sid: string, @Req() req: any) {
     return this.wf.resources(sid ? Number(sid) : (req.user.role === 'manager' ? undefined : req.user.store_id));
   }
@@ -194,7 +194,7 @@ export class WorkflowController {
   }
 
   @Post('followups/:fid/complete')
-  @Roles('customer_service', 'manager')
+  @Roles('customer_service', 'cs_supervisor', 'storage_manager', 'manager')
   followupDone(@Param('fid', ParseIntPipe) fid: number, @Body() body: any, @Req() req: any) {
     return this.wf.completeFollowup(fid, body, req.user);
   }
