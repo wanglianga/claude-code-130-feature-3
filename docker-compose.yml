@@ -1,0 +1,56 @@
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: nggui-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: pet_aftercare
+      MARIADB_USER: petapp
+      MARIADB_PASSWORD: petapp123
+      MARIADB_ROOT_PASSWORD: root123
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    container_name: nggui-backend
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_USER: petapp
+      DB_PASS: petapp123
+      DB_NAME: pet_aftercare
+      TZ: Asia/Shanghai
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # 浏览器访问后端的地址（宿主机视角）
+        NEXT_PUBLIC_API: http://127.0.0.1:4000
+    container_name: nggui-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  dbdata:

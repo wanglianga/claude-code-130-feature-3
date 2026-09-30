@@ -48,13 +48,18 @@ export class Locker {
   @Column() store_id: number;
   @Column({ length: 20 }) code: string;           // 如 A-01-03
   @Column({ length: 20, default: 'standard' }) tier: 'standard' | 'premium';
-  /** free 空闲 / occupied 占用中 / expiring 即将到期（30天内）/ expired 已到期 */
+  /** free 空闲 / occupied 占用中 / expiring 即将到期（30天内）/ expired 已到期 /
+   *  protected 受保护待处置（或迁移预占）：不得释放、不得再次分配 */
   @Column({ length: 12, default: 'free' })
-  status: 'free' | 'occupied' | 'expiring' | 'expired';
+  status: 'free' | 'occupied' | 'expiring' | 'expired' | 'protected';
   @Column({ nullable: true }) appointment_id: number;
   @Column({ type: 'datetime', nullable: true }) occupied_since: Date;
   @Column({ type: 'datetime', nullable: true }) expire_at: Date;   // 年费到期
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 600 }) annual_fee: string;
+  /** 入柜时年费快照：续费时与当前 annual_fee 比对，发现价格变更需家属/客服确认 */
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true }) annual_fee_at_assign: string;
+  /** 受保护原因（待处置 / 迁移预占），与处置指令/申请配合展示 */
+  @Column({ length: 60, nullable: true }) protected_reason: string;
 }
 
 /** 情感回访记录（含情绪安抚）—— 回访节奏由柜位/纪念品状态驱动 */

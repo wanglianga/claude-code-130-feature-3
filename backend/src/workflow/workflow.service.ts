@@ -61,7 +61,8 @@ export class WorkflowService {
     const a = await this.appts.findOne({ where: { id } });
     if (!a) throw new NotFoundException('预约单不存在');
     if (user.role === 'owner' && a.owner_id !== user.sub) throw new ForbiddenException('无权查看他人预约');
-    if (user.role !== 'owner' && user.role !== 'manager' && a.store_id !== user.store_id) {
+    const crossStoreRoles = ['manager', 'cs_lead', 'storage_lead'];
+    if (user.role !== 'owner' && !crossStoreRoles.includes(user.role) && a.store_id !== user.store_id) {
       throw new ForbiddenException('跨门店数据不可访问');
     }
     return a;
@@ -114,9 +115,9 @@ export class WorkflowService {
   async list(user: U, query: any) {
     const qb = this.appts.createQueryBuilder('a').orderBy('a.id', 'DESC');
     if (user.role === 'owner') qb.where('a.owner_id = :uid', { uid: user.sub });
-    else if (user.role !== 'manager') qb.where('a.store_id = :sid', { sid: user.store_id });
+    else if (!['manager', 'cs_lead', 'storage_lead'].includes(user.role)) qb.where('a.store_id = :sid', { sid: user.store_id });
     if (query.status) qb.andWhere('a.status = :st', { st: query.status });
-    if (query.store_id && user.role === 'manager') qb.andWhere('a.store_id = :sid2', { sid2: query.store_id });
+    if (query.store_id && ['manager', 'cs_lead', 'storage_lead'].includes(user.role)) qb.andWhere('a.store_id = :sid2', { sid2: query.store_id });
     return qb.limit(200).getMany();
   }
 
@@ -142,11 +143,11 @@ export class WorkflowService {
       this.messages.find({ where: { appointment_id: id }, order: { id: 'ASC' } }),
     ]);
     const owner = await this.users.findOne({ where: { id: a.owner_id } });
-    const quoteTotal = fees.filter(f => f.entry_type === 'base')
+    const quoteTotal = fees.filter(f => f.entry_type === 'base' && !f.voided)
       .reduce((s, f) => s + Number(f.amount), 0);
-    const confirmedChange = fees.filter(f => f.entry_type === 'change' && f.confirm_status === 'confirmed')
+    const confirmedChange = fees.filter(f => f.entry_type === 'change' && f.confirm_status === 'confirmed' && !f.voided)
       .reduce((s, f) => s + Number(f.amount), 0);
-    const pendingChange = fees.filter(f => f.entry_type === 'change' && f.confirm_status === 'pending')
+    const pendingChange = fees.filter(f => f.entry_type === 'change' && f.confirm_status === 'pending' && !f.voided)
       .reduce((s, f) => s + Number(f.amount), 0);
     const paid = payments.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0);
     const refunded = payments.filter(p => p.status === 'refunded').reduce((s, p) => s + Number(p.amount), 0);
@@ -608,10 +609,12 @@ export class WorkflowService {
     await this.ds.transaction(async tx => {
       await tx.getRepository(Locker).update(locker.id, {
         status: 'occupied', appointment_id: id, occupied_since: new Date(), expire_at: expireAt,
+        annual_fee_at_assign: String(Number(locker.annual_fee).toFixed(2)),
       });
       await tx.getRepository(TimelineEvent).insert(tx.getRepository(TimelineEvent).create({
         appointment_id: id, node_key: 'storage_in', title: `骨灰入寄存柜位 ${locker.code}`,
-        actor_id: user.sub, actor_role: user.role, note: `到期时间 ${expireAt.toLocaleString('zh-CN')}；年费 ${locker.annual_fee} 元`,
+        actor_id: user.sub, actor_role: user.role,
+        note: `到期时间 ${expireAt.toLocaleString('zh-CN')}；入柜年费 ${locker.annual_fee} 元`,
         occurred_at: new Date(),
       }));
       await tx.getRepository(Followup).insert(tx.getRepository(Followup).create({
@@ -623,71 +626,12 @@ export class WorkflowService {
     return this.lockers.findOne({ where: { id: locker.id } });
   }
 
-  async renewLocker(lockerId: number, dto: { months: number }, user: U) {
-    const locker = await this.lockers.findOne({ where: { id: lockerId } });
-    if (!locker) throw new NotFoundException('柜位不存在');
-    if (!locker.appointment_id) throw new BadRequestException('柜位当前未占用');
-    const base = locker.expire_at && +locker.expire_at > Date.now() ? locker.expire_at : new Date();
-    const newExpire = new Date(+base + dto.months * 30 * 86400000);
-    const fee = Math.round((Number(locker.annual_fee) / 12) * dto.months * 100) / 100;
-    await this.ds.transaction(async tx => {
-      await tx.getRepository(Locker).update(lockerId, { status: 'occupied', expire_at: newExpire });
-      await tx.getRepository(FeeItem).insert(tx.getRepository(FeeItem).create({
-        appointment_id: locker.appointment_id, kind: 'storage', title: `柜位 ${locker.code} 续存 ${dto.months} 个月`,
-        amount: String(fee), reason: '寄存续费', operator_id: user.sub,
-        entry_type: 'change', confirm_status: 'confirmed',
-      }));
-      await tx.getRepository(TimelineEvent).insert(tx.getRepository(TimelineEvent).create({
-        appointment_id: locker.appointment_id, node_key: 'storage_renewed', flag: 'resolved',
-        title: `柜位 ${locker.code} 续费 ${dto.months} 个月，新到期 ${newExpire.toLocaleString('zh-CN')}`,
-        actor_id: user.sub, actor_role: user.role, occurred_at: new Date(),
-      }));
-      // 续费后关闭该单待办的到期提醒回访
-      await tx.getRepository(Followup).update(
-        { appointment_id: locker.appointment_id, status: 'scheduled' as any,
-          trigger: In(['locker_expiring', 'locker_expired']) },
-        { status: 'skipped' });
-    });
-    return this.lockers.findOne({ where: { id: lockerId } });
-  }
-
-  /** 定时任务：扫描柜位到期状态并生成回访（30 天内 expiring；已过期 expired 未续费） */
-  async scanLockers(user?: U) {
-    const lockers = await this.lockers.find({ where: { status: In(['occupied', 'expiring', 'expired']) } });
-    let expiring = 0, expired = 0;
-    for (const l of lockers) {
-      if (!l.expire_at) continue;
-      const days = (+l.expire_at - Date.now()) / 86400000;
-      if (days <= 0) {
-        if (l.status !== 'expired') {
-          await this.lockers.update(l.id, { status: 'expired' });
-          const exists = await this.followups.findOne({
-            where: { appointment_id: l.appointment_id, trigger: 'locker_expired', status: 'scheduled' } });
-          if (!exists) await this.followups.save(this.followups.create({
-            appointment_id: l.appointment_id, trigger: 'locker_expired', planned_at: new Date(),
-            content: `柜位 ${l.code} 已到期未续费，联系家属确认续存或领回`,
-          }));
-          expired++;
-        }
-      } else if (days <= 30) {
-        if (l.status !== 'expiring') {
-          await this.lockers.update(l.id, { status: 'expiring' });
-          const exists = await this.followups.findOne({
-            where: { appointment_id: l.appointment_id, trigger: 'locker_expiring', status: 'scheduled' } });
-          if (!exists) await this.followups.save(this.followups.create({
-            appointment_id: l.appointment_id, trigger: 'locker_expiring', planned_at: new Date(),
-            content: `柜位 ${l.code} 将于 ${l.expire_at.toLocaleString('zh-CN')} 到期，提醒家属续费`,
-          }));
-          expiring++;
-        }
-      }
-    }
-    return { scanned: lockers.length, expiring, expired };
-  }
+  // 续费（可续用/年费变更/未结费用校验）、到期扫描、转长期、多轮联系、处置审批与撤回
+  // 统一见 StorageService（/api/lockers/scan、/api/lockers/:id/renew 等路由）
 
   listLockers(user: U, status?: string) {
     const where: any = {};
-    if (user.role !== 'manager') where.store_id = user.store_id;
+    if (!['manager', 'cs_lead', 'storage_lead'].includes(user.role)) where.store_id = user.store_id;
     if (status) where.status = status;
     return this.lockers.find({ where, order: { code: 'ASC' } });
   }
@@ -697,7 +641,7 @@ export class WorkflowService {
   async listFollowups(user: U, status = 'scheduled') {
     if (user.role === 'owner') return [];
     const apptIds = (await this.appts.find({
-      where: user.role === 'manager' ? {} : { store_id: user.store_id },
+      where: ['manager', 'cs_lead', 'storage_lead'].includes(user.role) ? {} : { store_id: user.store_id },
       select: { id: true },
     })).map(a => a.id);
     if (!apptIds.length) return [];
@@ -837,17 +781,19 @@ export class WorkflowService {
         }
       }
     }
-    const [stores, expiringLockers, failedMementos, pendingFees] = await Promise.all([
+    const [stores, expiringLockers, failedMementos, pendingFees, protectedLockers] = await Promise.all([
       this.stores.find(),
       this.lockers.count({ where: { status: In(['expiring', 'expired']) } }),
       this.mementos.count({ where: { status: In(['failed', 'remake']) } }),
       this.fees.count({ where: { entry_type: 'change', confirm_status: 'pending' } }),
+      this.lockers.count({ where: { status: 'protected' } }),
     ]);
     return {
       total: appts.length, status_count: statusCount,
       open_exceptions: exceptions, payable_total: payable, paid_total: paid,
       breached_promises: breached.slice(0, 50),
       expiring_lockers: expiringLockers, failed_mementos: failedMementos, pending_fees: pendingFees,
+      protected_lockers: protectedLockers,
       stores,
     };
   }

@@ -5,10 +5,11 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
+    "start": "node dist/src/main.js",
     "dev": "ts-node src/main.ts",
     "seed": "ts-node scripts/seed.ts",
-    "demo": "ts-node scripts/demo-flow.ts"
+    "demo": "ts-node scripts/demo-flow.ts",
+    "demo:storage": "ts-node scripts/demo-storage.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

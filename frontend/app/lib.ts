@@ -36,6 +36,8 @@ export async function api(method: string, path: string, body?: any): Promise<any
 export const ROLE_LABEL: Record<string, string> = {
   owner: '宠物主人',
   customer_service: '客服',
+  cs_lead: '客服主管',
+  storage_lead: '寄存主管',
   driver: '接送员',
   ceremonialist: '礼仪师',
   cremator: '火化师',
@@ -85,5 +87,12 @@ export const TRIGGER_LABEL: Record<string, string> = {
   urn_damaged: '骨灰盒破损关怀',
   locker_expiring: '柜位临期提醒',
   locker_expired: '到期未续费跟进',
+  locker_protected: '受保护待处置',
+  post_disposal: '处置后家属回访',
   post_service: '服务后情绪安抚',
+};
+
+export const LOCKER_STATUS_LABEL: Record<string, string> = {
+  free: '空闲', occupied: '占用中', expiring: '临期(30天内)',
+  expired: '已到期', protected: '受保护待处置',
 };

@@ -13,11 +13,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (!s) return null;
   const role = s.user.role;
   const nav: { href: string; label: string; roles: string[] }[] = [
-    { href: '/appointments', label: '服务工单', roles: ['owner', 'customer_service', 'driver', 'ceremonialist', 'cremator', 'artisan', 'finance', 'manager'] },
+    { href: '/appointments', label: '服务工单', roles: ['owner', 'customer_service', 'cs_lead', 'storage_lead', 'driver', 'ceremonialist', 'cremator', 'artisan', 'finance', 'manager'] },
     { href: '/new', label: '我要预约', roles: ['owner'] },
-    { href: '/followups', label: '回访中心', roles: ['customer_service', 'manager'] },
-    { href: '/lockers', label: '寄存柜位', roles: ['customer_service', 'manager'] },
-    { href: '/overview', label: '管理总览', roles: ['manager'] },
+    { href: '/followups', label: '回访中心', roles: ['customer_service', 'cs_lead', 'manager'] },
+    { href: '/lockers', label: '寄存柜位', roles: ['customer_service', 'cs_lead', 'storage_lead', 'manager'] },
+    { href: '/storage', label: '寄存处置中心', roles: ['customer_service', 'cs_lead', 'storage_lead', 'manager'] },
+    { href: '/overview', label: '管理总览', roles: ['manager', 'cs_lead', 'storage_lead'] },
   ];
   const items = nav.filter(n => n.roles.includes(role));
   return (

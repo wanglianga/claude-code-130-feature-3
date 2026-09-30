@@ -49,7 +49,7 @@ export default function FollowupsPage() {
                 <tr key={f.id}>
                   <td>{appts[f.appointment_id]?.pet_name || `#${f.appointment_id}`}
                     <div className="muted mono">{appts[f.appointment_id]?.code}</div></td>
-                  <td><span className={`tag ${f.trigger.includes('failed') || f.trigger.includes('damaged') || f.trigger.includes('expired') ? 'bad' : 'info'}`}>
+                  <td><span className={`tag ${f.trigger.includes('failed') || f.trigger.includes('damaged') || f.trigger.includes('expired') || f.trigger.includes('protected') ? 'bad' : 'info'}`}>
                     {TRIGGER_LABEL[f.trigger] || f.trigger}</span></td>
                   <td>{fmt(f.planned_at)}</td>
                   <td style={{ maxWidth: 280 }}>{f.content}{f.done_at && <div className="muted">完成于 {fmt(f.done_at)}</div>}</td>

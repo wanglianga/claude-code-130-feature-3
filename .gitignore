@@ -4,6 +4,7 @@ dist/
 .npm-cache/
 .local/mariadb/
 .local/mariadb-*/
+.local/*.tar.gz
 .local/mysqldata/
 .local/*.log
 .local/mysql.sock

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../AppShell';
+import StoragePanel from './StoragePanel';
 import {
   api, fmt, getSession, PET_LABEL, ROLE_LABEL, STATUS_LABEL, statusTag, yuan,
 } from '../../lib';
@@ -54,7 +55,8 @@ export default function DetailPage({ params }: { params: { id: string } }) {
   if (!s || !d) return <AppShell><div className="panel">{err ? <div className="error">{err}</div> : '加载中…'}</div></AppShell>;
   const a = d.appointment;
   const canCs = ['customer_service', 'manager'].includes(role);
-  const pendingConfirms = d.confirmations.filter((c: any) => c.status === 'pending');
+  const pendingConfirms = d.confirmations.filter((c: any) =>
+    c.status === 'pending' && c.subject !== 'long_term_migration');
   const planConfirmed = d.confirmations.some((c: any) => c.subject === 'plan' && c.status === 'confirmed');
 
   return (
@@ -117,9 +119,11 @@ export default function DetailPage({ params }: { params: { id: string } }) {
               <thead><tr><th>项目</th><th>金额</th><th>类型</th><th>确认</th></tr></thead>
               <tbody>
                 {d.fees.map((f: any) => (
-                  <tr key={f.id}>
-                    <td>{f.title}{f.reason && <div className="muted">{f.reason}</div>}</td>
-                    <td className="mono">{Number(f.amount) >= 0 ? '' : ''}{yuan(f.amount)}</td>
+                  <tr key={f.id} style={f.voided ? { opacity: 0.55 } : undefined}>
+                    <td>{f.voided ? <s>{f.title}</s> : f.title}
+                      {f.voided ? <div className="tag" style={{ marginTop: 2 }}>已冲销（指令撤回）</div>
+                        : f.reason && <div className="muted">{f.reason}</div>}</td>
+                    <td className="mono">{yuan(f.amount)}</td>
                     <td>{f.entry_type === 'base' ? '基础项' : <span className="tag warn">变更项</span>}</td>
                     <td>{f.confirm_status === 'confirmed' ? <span className="tag ok">已确认</span>
                       : f.confirm_status === 'rejected' ? <span className="tag bad">已拒绝</span>
@@ -235,39 +239,27 @@ export default function DetailPage({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          {/* 柜位 */}
-          <div className="panel">
-            <h2>骨灰寄存柜位</h2>
-            {d.locker ? (
-              <>
-                <dl className="kv">
-                  <dt>柜位</dt><dd>{d.locker.code}（{d.locker.tier === 'premium' ? '尊享柜' : '标准柜'}）<LockerTag s={d.locker.status} /></dd>
-                  <dt>入存时间</dt><dd>{fmt(d.locker.occupied_since)}</dd>
-                  <dt>到期时间</dt><dd>{fmt(d.locker.expire_at)}（年费 {yuan(d.locker.annual_fee)}）</dd>
-                </dl>
-                {canCs && ['occupied', 'expiring', 'expired'].includes(d.locker.status) && (
-                  <button className="small" onClick={() => act(() => api('POST', `/api/lockers/${d.locker.id}/renew`, { months: 12 }), '已续费 12 个月')}>续费 12 个月</button>
-                )}
-              </>
-            ) : (
-              <>
-                <p className="muted">尚未入柜寄存</p>
-                {canCs && a.status === 'fulfilled' && resources && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <select id="lockerPick" style={{ flex: 1 }} defaultValue="">
-                      <option value="" disabled>选择空闲柜位</option>
-                      {resources.lockers.filter((l: any) => l.store_id === a.store_id && l.status === 'free').map((l: any) =>
-                        <option key={l.id} value={l.code}>{l.code} · {l.tier === 'premium' ? '尊享柜' : '标准柜'} · {yuan(l.annual_fee)}/年</option>)}
-                    </select>
-                    <button className="small" onClick={() => {
-                      const code = (document.getElementById('lockerPick') as HTMLSelectElement).value;
-                      if (code) act(() => api('POST', `/api/appointments/${a.id}/locker-assign`, { code }), '已入柜');
-                    }}>安排入柜</button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          {/* 柜位入存 + 续费/授权/处置 */}
+          {!d.locker && (
+            <div className="panel">
+              <h2>骨灰寄存柜位</h2>
+              <p className="muted">尚未入柜寄存</p>
+              {canCs && a.status === 'fulfilled' && resources && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select id="lockerPick" style={{ flex: 1 }} defaultValue="">
+                    <option value="" disabled>选择空闲柜位</option>
+                    {resources.lockers.filter((l: any) => l.store_id === a.store_id && l.status === 'free').map((l: any) =>
+                      <option key={l.id} value={l.code}>{l.code} · {l.tier === 'premium' ? '尊享柜' : '标准柜'} · {yuan(l.annual_fee)}/年</option>)}
+                  </select>
+                  <button className="small" onClick={() => {
+                    const code = (document.getElementById('lockerPick') as HTMLSelectElement).value;
+                    if (code) act(() => api('POST', `/api/appointments/${a.id}/locker-assign`, { code }), '已入柜');
+                  }}>安排入柜</button>
+                </div>
+              )}
+            </div>
+          )}
+          {d.locker && <StoragePanel a={a} onChanged={load} />}
 
           {/* 相册 */}
           <AlbumPanel a={a} d={d} role={role} act={act} />

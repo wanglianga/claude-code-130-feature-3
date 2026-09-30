@@ -20,6 +20,10 @@ export class FeeItem {
   @Column({ type: 'varchar', length: 10, default: 'base' }) entry_type: 'base' | 'change';
   @Column({ type: 'varchar', length: 12, default: 'pending' })
   confirm_status: 'pending' | 'confirmed' | 'rejected';
+  /** 冲销标记：撤回未完成处置（如撤回迁移）时，对应账单行被冲销，不计入应付 */
+  @Column({ default: false }) voided: boolean;
+  @Column({ type: 'datetime', nullable: true }) voided_at: Date;
+  @Column({ length: 60, nullable: true }) voided_reason: string;
   @CreateDateColumn() created_at: Date;
 }
 

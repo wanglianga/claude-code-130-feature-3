@@ -177,15 +177,7 @@ export class WorkflowController {
     return this.wf.assignLocker(id, body, req.user);
   }
 
-  @Post('lockers/:lid/renew')
-  @Roles('customer_service', 'manager', 'finance')
-  renew(@Param('lid', ParseIntPipe) lid: number, @Body() body: any, @Req() req: any) {
-    return this.wf.renewLocker(lid, body, req.user);
-  }
-
-  @Post('lockers/scan')
-  @Roles('customer_service', 'manager')
-  scan(@Req() req: any) { return this.wf.scanLockers(req.user); }
+  // 续费 / 到期扫描统一由 StorageController 实现（含可续用、年费变更、未结费用校验）
 
   // —— 回访 ——
   @Get('followups')
